@@ -425,10 +425,48 @@ c2.metric(
     "xG trasferta",
     f"{pred['lambda_away']:.2f}"
 )
+# --------------------------------------------------
+# RISULTATI MODELLO
+# --------------------------------------------------
+
+st.markdown("### Previsione della partita")
+
+c1, c2, c3 = st.columns(3)
+
+c1.metric(
+    "xG casa",
+    f"{pred['lambda_home']:.2f}"
+)
+
+c2.metric(
+    "xG trasferta",
+    f"{pred['lambda_away']:.2f}"
+)
 
 c3.metric(
     "Risultato esatto modale",
     pred["most_likely_score"]
+)
+
+
+# --------------------------------------------------
+# SOGLIA RISULTATI ESATTI
+# --------------------------------------------------
+
+st.markdown("### Evidenza delle probabilità")
+
+score_threshold = st.slider(
+    "Soglia di evidenziazione risultati esatti",
+    min_value=1,
+    max_value=30,
+    value=10,
+    step=1,
+    format="%d%%"
+)
+
+st.caption(
+    "I risultati esatti che raggiungono o superano "
+    "questa percentuale saranno evidenziati in verde."
 )
 
 
@@ -438,21 +476,49 @@ c3.metric(
 
 st.markdown("#### Probabilità 1X2")
 
-cols = st.columns(3)
-
-for col, label, value in zip(
-    cols,
-    ["1 · Casa", "X · Pareggio", "2 · Trasferta"],
-    [
+one_x_two = pd.DataFrame({
+    "Esito": [
+        "1 · Vittoria casa",
+        "X · Pareggio",
+        "2 · Vittoria trasferta"
+    ],
+    "Probabilità": [
         pred["home_win"],
         pred["draw"],
         pred["away_win"]
     ]
-):
-    col.metric(
-        label,
-        f"{value:.1%}"
-    )
+})
+
+
+def highlight_best(row):
+    styles = [""] * len(row)
+
+    probability_index = row.index.get_loc("Probabilità")
+
+    if row["Probabilità"] == one_x_two["Probabilità"].max():
+        styles[probability_index] = (
+            "background-color: #176B3A; color: white; font-weight: bold"
+        )
+
+    return styles
+
+
+def color_probability(value):
+    if value >= 0.60:
+        return "background-color: #176B3A; color: white; font-weight: bold"
+    elif value >= 0.45:
+        return "background-color: #80651B; color: white"
+    else:
+        return "background-color: #792D35; color: white"
+
+
+st.dataframe(
+    one_x_two.style
+    .apply(highlight_best, axis=1)
+    .format({"Probabilità": "{:.1%}"}),
+    use_container_width=True,
+    hide_index=True
+)
 
 
 # --------------------------------------------------
@@ -461,21 +527,58 @@ for col, label, value in zip(
 
 st.markdown("#### Mercati gol")
 
-cols = st.columns(3)
+markets = pd.DataFrame({
+    "Mercato": [
+        "Over 2.5",
+        "Under 2.5",
+        "Goal (BTTS)"
+    ],
+    "Probabilità": [
+        pred["over_25"],
+        pred["under_25"],
+        pred["btts"]
+    ]
+})
 
-cols[0].metric(
-    "Over 2.5",
-    f"{pred['over_25']:.1%}"
-)
 
-cols[1].metric(
-    "Under 2.5",
-    f"{pred['under_25']:.1%}"
-)
+def highlight_goal_markets(row):
+    styles = [""] * len(row)
+    probability_index = row.index.get_loc("Probabilità")
 
-cols[2].metric(
-    "Goal",
-    f"{pred['btts']:.1%}"
+    # Confronto diretto Over / Under
+    if row["Mercato"] in ("Over 2.5", "Under 2.5"):
+        if row["Probabilità"] == max(
+            pred["over_25"],
+            pred["under_25"]
+        ):
+            styles[probability_index] = (
+                "background-color: #176B3A; color: white; font-weight: bold"
+            )
+
+    # Evidenzia Goal se raggiunge almeno il 55%
+    elif row["Mercato"] == "Goal (BTTS)":
+        if row["Probabilità"] >= 0.55:
+            styles[probability_index] = (
+                "background-color: #176B3A; color: white; font-weight: bold"
+            )
+        elif row["Probabilità"] >= 0.45:
+            styles[probability_index] = (
+                "background-color: #80651B; color: white"
+            )
+        else:
+            styles[probability_index] = (
+                "background-color: #792D35; color: white"
+            )
+
+    return styles
+
+
+st.dataframe(
+    markets.style
+    .apply(highlight_goal_markets, axis=1)
+    .format({"Probabilità": "{:.1%}"}),
+    use_container_width=True,
+    hide_index=True
 )
 
 
@@ -497,16 +600,37 @@ top = sorted(
     reverse=True
 )[:10]
 
+exact_scores = pd.DataFrame([
+    {
+        "Risultato": score,
+        "Probabilità": prob
+    }
+    for score, prob in top
+])
+
+
+def highlight_exact_scores(row):
+    probability = row["Probabilità"]
+
+    if probability >= score_threshold / 100:
+        return [
+            "background-color: #176B3A; color: white; font-weight: bold"
+        ] * len(row)
+
+    return [""] * len(row)
+
+
 st.dataframe(
-    pd.DataFrame([
-        {
-            "Risultato": score,
-            "Probabilità": f"{prob:.2%}"
-        }
-        for score, prob in top
-    ]),
+    exact_scores.style
+    .apply(highlight_exact_scores, axis=1)
+    .format({"Probabilità": "{:.2%}"}),
     use_container_width=True,
     hide_index=True
+)
+
+st.caption(
+    "Verde: risultato esatto sopra la soglia selezionata. "
+    "La probabilità si riferisce al modello Poisson."
 )
 
 
@@ -535,6 +659,7 @@ if st.button(
 
 st.caption(
     "Modello Poisson indipendente. "
-    "Le stime sono probabilistiche e non costituiscono "
-    "garanzie o consigli di scommessa."
+    "Le probabilità non garantiscono risultati "
+    "e non rappresentano da sole un'indicazione "
+    "di convenienza economica."
 )
