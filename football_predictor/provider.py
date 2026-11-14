@@ -74,8 +74,8 @@ class APIFootballProvider:
 
         data = self._get("teams/statistics", params)
 
-        return data[0] if data else {}
-
+        return data if isinstance(data, dict) else (data[0] if data else {})
+        
     def get_last_fixtures(self, team_id, count=10, cutoff=None):
         params = {
             "team": team_id,
