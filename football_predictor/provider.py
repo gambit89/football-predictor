@@ -13,11 +13,6 @@ class APIFootballProvider:
         }
 
     def _get(self, endpoint, params=None):
-        """
-        Esegue una richiesta all'API-Football
-        e restituisce il contenuto del campo response.
-        """
-
         response = requests.get(
             f"{self.base_url}/{endpoint}",
             headers=self.headers,
@@ -26,13 +21,10 @@ class APIFootballProvider:
         )
 
         response.raise_for_status()
-
         data = response.json()
 
         if not isinstance(data, dict):
-            raise RuntimeError(
-                "Risposta API non valida."
-            )
+            raise RuntimeError("Risposta API non valida.")
 
         errors = data.get("errors")
 
@@ -45,59 +37,62 @@ class APIFootballProvider:
 
     def get_next_fixtures(self, count=50):
         """
-        Recupera le partite dei prossimi 14 giorni.
-
-        Non utilizza il parametro 'next', non disponibile
-        nel piano gratuito API-Football.
-
-        Utilizza invece i parametri 'from' e 'to'.
+        Recupera le partite dei prossimi 14 giorni
+        effettuando una richiesta per ogni giornata.
         """
 
         today = datetime.now(
             ZoneInfo("Europe/Rome")
         ).date()
 
-        end_date = today + timedelta(days=14)
-
-        params = {
-            "from": today.isoformat(),
-            "to": end_date.isoformat(),
-            "timezone": "Europe/Rome"
-        }
-
-        data = self._get(
-            "fixtures",
-            params
-        )
-
         fixtures = []
+        seen_ids = set()
 
-        for item in data:
+        for day in range(15):
 
-            fixture = item.get("fixture", {})
-            league = item.get("league", {})
-            teams = item.get("teams", {})
+            current_date = (
+                today + timedelta(days=day)
+            ).isoformat()
 
-            home = teams.get("home", {})
-            away = teams.get("away", {})
+            data = self._get(
+                "fixtures",
+                {
+                    "date": current_date
+                }
+            )
 
-            fixtures.append({
-                "fixture_id": fixture.get("id"),
-                "date": fixture.get("date"),
-                "league": league.get("name"),
-                "league_id": league.get("id"),
-                "season": league.get("season"),
-                "country": league.get("country"),
-                "home": home.get("name"),
-                "away": away.get("name"),
-                "home_id": home.get("id"),
-                "away_id": away.get("id"),
-                "status": fixture.get(
-                    "status", {}
-                ).get("short")
-            })
+            for item in data:
 
-        # Ordina le partite in base alla data
+                fixture = item.get("fixture", {})
+                league = item.get("league", {})
+                teams = item.get("teams", {})
+
+                fixture_id = fixture.get("id")
+
+                if not fixture_id or fixture_id in seen_ids:
+                    continue
+
+                home = teams.get("home", {})
+                away = teams.get("away", {})
+
+                fixtures.append({
+                    "fixture_id": fixture_id,
+                    "date": fixture.get("date"),
+                    "league": league.get("name"),
+                    "league_id": league.get("id"),
+                    "season": league.get("season"),
+                    "country": league.get("country"),
+                    "home": home.get("name"),
+                    "away": away.get("name"),
+                    "home_id": home.get("id"),
+                    "away_id": away.get("id"),
+                    "status": fixture.get(
+                        "status", {}
+                    ).get("short")
+                })
+
+                seen_ids.add(fixture_id)
+
         fixtures.sort(
             key=lambda x: x["date"] or ""
         )
@@ -111,12 +106,6 @@ class APIFootballProvider:
         season,
         cutoff=None
     ):
-        """
-        Recupera le statistiche stagionali della squadra.
-
-        cutoff limita le statistiche alle partite
-        disputate fino alla data indicata.
-        """
 
         params = {
             "team": team_id,
@@ -132,8 +121,6 @@ class APIFootballProvider:
             params
         )
 
-        # L'endpoint restituisce normalmente un dizionario.
-        # Manteniamo anche la compatibilità con eventuali liste.
         if isinstance(data, dict):
             return data
 
@@ -148,13 +135,6 @@ class APIFootballProvider:
         count=10,
         cutoff=None
     ):
-        """
-        Recupera le ultime partite della squadra.
-
-        Se cutoff è presente, limita la ricerca
-        alle partite precedenti o coincidenti
-        con la data indicata.
-        """
 
         params = {
             "team": team_id,
@@ -164,9 +144,7 @@ class APIFootballProvider:
         if cutoff:
             params["to"] = cutoff
 
-        data = self._get(
+        return self._get(
             "fixtures",
             params
         )
-
-        return data
