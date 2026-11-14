@@ -121,7 +121,7 @@ class APIFootballProvider:
 
     def get_next_fixtures(self, count=50):
         today = datetime.now(timezone.utc).date()
-        end_date = today + timedelta(days=14)
+        end_date = today + timedelta(days=9)
 
         data = self._get(
             "matches",
