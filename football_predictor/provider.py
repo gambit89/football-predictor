@@ -37,8 +37,9 @@ class APIFootballProvider:
 
     def get_next_fixtures(self, count=50):
         """
-        Recupera le partite dei prossimi 14 giorni
-        effettuando una richiesta per ogni giornata.
+        Recupera le partite di ieri, oggi e domani.
+        Evita il parametro next non disponibile
+        nel piano gratuito.
         """
 
         today = datetime.now(
@@ -48,7 +49,7 @@ class APIFootballProvider:
         fixtures = []
         seen_ids = set()
 
-     afor day in range(-1, 2):
+        for day in range(-1, 2):
 
             current_date = (
                 today + timedelta(days=day)
