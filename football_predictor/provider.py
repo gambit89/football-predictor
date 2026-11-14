@@ -28,7 +28,12 @@ class APIFootballProvider:
                 "Limite richieste API raggiunto. Attendi prima di riprovare."
             )
 
-        response.raise_for_status()
+        if response.status_code == 400:
+    raise RuntimeError(
+        f"Errore 400 football-data.org: {response.text}"
+    )
+
+response.raise_for_status()
         data = response.json()
 
         if not isinstance(data, dict):
