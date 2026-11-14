@@ -29,19 +29,17 @@ class APIFootballProvider:
         if response.status_code == 401:
             raise RuntimeError(
                 "Autenticazione API non riuscita. "
-                "Controlla il Secret FOOTBALL_DATA_TOKEN."
+                "Controlla FOOTBALL_DATA_TOKEN."
             )
 
         if response.status_code == 403:
             raise RuntimeError(
-                "Competizione o dati non inclusi nel piano "
-                "football-data.org."
+                "Competizione o dati non inclusi nel piano API."
             )
 
         if response.status_code == 429:
             raise RuntimeError(
-                "Limite richieste API raggiunto. "
-                "Attendi prima di riprovare."
+                "Limite richieste API raggiunto. Attendi prima di riprovare."
             )
 
         response.raise_for_status()
@@ -49,9 +47,7 @@ class APIFootballProvider:
         data = response.json()
 
         if not isinstance(data, dict):
-            raise RuntimeError(
-                "Risposta API non valida."
-            )
+            raise RuntimeError("Risposta API non valida.")
 
         return data
 
@@ -158,7 +154,14 @@ class APIFootballProvider:
             params["competitions"] = league_id
 
         if cutoff:
-            params["dateTo"] = cutoff
+            cutoff_date = datetime.fromisoformat(
+                cutoff
+            ).date()
+
+            start_date = cutoff_date - timedelta(days=364)
+
+            params["dateFrom"] = start_date.isoformat()
+            params["dateTo"] = cutoff_date.isoformat()
 
         data = self._get(
             f"teams/{team_id}/matches",
@@ -192,12 +195,8 @@ class APIFootballProvider:
 
         stats = {
             "goals": {
-                "for": {
-                    "average": {}
-                },
-                "against": {
-                    "average": {}
-                }
+                "for": {"average": {}},
+                "against": {"average": {}}
             }
         }
 
@@ -226,21 +225,18 @@ class APIFootballProvider:
                 venues["total"].append((ga, gh))
 
         for venue, results in venues.items():
-
             if not results:
                 stats["goals"]["for"]["average"][venue] = None
                 stats["goals"]["against"]["average"][venue] = None
                 continue
 
             stats["goals"]["for"]["average"][venue] = round(
-                sum(result[0] for result in results)
-                / len(results),
+                sum(result[0] for result in results) / len(results),
                 3
             )
 
             stats["goals"]["against"]["average"][venue] = round(
-                sum(result[1] for result in results)
-                / len(results),
+                sum(result[1] for result in results) / len(results),
                 3
             )
 
@@ -256,8 +252,7 @@ class APIFootballProvider:
     ):
         if season is None:
             raise ValueError(
-                "La stagione è necessaria per recuperare "
-                "la forma recente."
+                "La stagione è necessaria per recuperare la forma recente."
             )
 
         matches = self._get_team_matches(
