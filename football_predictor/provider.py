@@ -1,19 +1,16 @@
 
 import requests
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta, timezone, datetime
 
 
 class APIFootballProvider:
 
     def __init__(self, api_key, base_url):
         self.base_url = base_url.rstrip("/")
-        self.headers = {
-            "X-Auth-Token": api_key
-        }
+        self.headers = {"X-Auth-Token": api_key}
 
     def _get(self, endpoint, params=None):
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
-
         response = requests.get(
             url,
             headers=self.headers,
@@ -23,41 +20,29 @@ class APIFootballProvider:
 
         if response.status_code == 403:
             raise RuntimeError(
-                "Competizione o dati non inclusi "
-                "nel piano football-data.org."
+                "Competizione o dati non inclusi nel piano football-data.org."
             )
 
         if response.status_code == 429:
             raise RuntimeError(
-                "Limite richieste API raggiunto. "
-                "Attendi prima di riprovare."
+                "Limite richieste API raggiunto. Attendi prima di riprovare."
             )
 
         response.raise_for_status()
-
         data = response.json()
 
         if not isinstance(data, dict):
             raise RuntimeError("Risposta API non valida.")
 
-        if "error" in data:
-            raise RuntimeError(str(data["error"]))
-
         return data
 
     def _normalize_match(self, item):
-        """
-        Converte il formato football-data.org
-        nel formato utilizzato dal modello Poisson.
-        """
-
         home = item.get("homeTeam") or {}
         away = item.get("awayTeam") or {}
         competition = item.get("competition") or {}
         season = item.get("season") or {}
         score = item.get("score") or {}
         full_time = score.get("fullTime") or {}
-
         status = item.get("status")
 
         status_map = {
@@ -67,7 +52,9 @@ class APIFootballProvider:
             "SCHEDULED": "NS",
             "TIMED": "NS",
             "POSTPONED": "PST",
-            "CANCELLED": "CANC"
+            "CANCELLED": "CANC",
+            "SUSPENDED": "SUSP",
+            "AWARDED": "FT"
         }
 
         return {
@@ -77,12 +64,9 @@ class APIFootballProvider:
             "league_id": competition.get("code"),
             "season": (
                 int(season["startDate"][:4])
-                if season.get("startDate")
-                else None
+                if season.get("startDate") else None
             ),
-            "country": (
-                (item.get("area") or {}).get("name")
-            ),
+            "country": (item.get("area") or {}).get("name"),
             "home": home.get("name"),
             "away": away.get("name"),
             "home_id": home.get("id"),
@@ -96,14 +80,8 @@ class APIFootballProvider:
                 }
             },
             "teams": {
-                "home": {
-                    "id": home.get("id"),
-                    "name": home.get("name")
-                },
-                "away": {
-                    "id": away.get("id"),
-                    "name": away.get("name")
-                }
+                "home": {"id": home.get("id"), "name": home.get("name")},
+                "away": {"id": away.get("id"), "name": away.get("name")}
             },
             "goals": {
                 "home": full_time.get("home"),
@@ -112,10 +90,6 @@ class APIFootballProvider:
         }
 
     def get_next_fixtures(self, count=50):
-        """
-        Recupera le partite dei prossimi 14 giorni.
-        """
-
         today = datetime.now(timezone.utc).date()
         end_date = today + timedelta(days=14)
 
@@ -127,17 +101,11 @@ class APIFootballProvider:
             }
         )
 
-        matches = data.get("matches", [])
-
         fixtures = [
             self._normalize_match(item)
-            for item in matches
+            for item in data.get("matches", [])
         ]
-
-        fixtures.sort(
-            key=lambda x: x["date"] or ""
-        )
-
+        fixtures.sort(key=lambda item: item["date"] or "")
         return fixtures[:count]
 
     def _get_team_matches(
@@ -147,10 +115,7 @@ class APIFootballProvider:
         league_id=None,
         cutoff=None
     ):
-        params = {
-            "season": season,
-            "limit": 100
-        }
+        params = {"season": season, "limit": 100}
 
         if league_id:
             params["competitions"] = league_id
@@ -158,23 +123,14 @@ class APIFootballProvider:
         if cutoff:
             params["dateTo"] = cutoff
 
-        data = self._get(
-            f"teams/{team_id}/matches",
-            params
-        )
+        data = self._get(f"teams/{team_id}/matches", params)
 
-        matches = data.get("matches", [])
-
-        normalized = [
+        matches = [
             self._normalize_match(item)
-            for item in matches
+            for item in data.get("matches", [])
         ]
-
-        normalized.sort(
-            key=lambda x: x["date"] or ""
-        )
-
-        return normalized
+        matches.sort(key=lambda item: item["date"] or "")
+        return matches
 
     def get_team_season_stats(
         self,
@@ -183,50 +139,31 @@ class APIFootballProvider:
         season,
         cutoff=None
     ):
-        """
-        Ricostruisce le statistiche stagionali
-        dai risultati effettivi delle partite.
-        """
-
         matches = self._get_team_matches(
-            team_id,
-            season,
-            league_id,
-            cutoff
+            team_id, season, league_id, cutoff
         )
 
         stats = {
             "goals": {
-                "for": {
-                    "average": {}
-                },
-                "against": {
-                    "average": {}
-                }
+                "for": {"average": {}},
+                "against": {"average": {}}
             }
         }
 
-        venues = {
-            "home": [],
-            "away": [],
-            "total": []
-        }
+        venues = {"home": [], "away": [], "total": []}
 
         for match in matches:
-
             if match["status"] != "FT":
                 continue
 
             goals = match["goals"]
-            home_id = match["home_id"]
-
             gh = goals["home"]
             ga = goals["away"]
 
             if gh is None or ga is None:
                 continue
 
-            if home_id == team_id:
+            if match["home_id"] == team_id:
                 venues["home"].append((gh, ga))
                 venues["total"].append((gh, ga))
             else:
@@ -234,21 +171,16 @@ class APIFootballProvider:
                 venues["total"].append((ga, gh))
 
         for venue, results in venues.items():
-
             if not results:
                 stats["goals"]["for"]["average"][venue] = None
                 stats["goals"]["against"]["average"][venue] = None
                 continue
 
-            goals_for = sum(x[0] for x in results)
-            goals_against = sum(x[1] for x in results)
-
             stats["goals"]["for"]["average"][venue] = round(
-                goals_for / len(results), 3
+                sum(result[0] for result in results) / len(results), 3
             )
-
             stats["goals"]["against"]["average"][venue] = round(
-                goals_against / len(results), 3
+                sum(result[1] for result in results) / len(results), 3
             )
 
         return stats
@@ -257,28 +189,25 @@ class APIFootballProvider:
         self,
         team_id,
         count=10,
-        cutoff=None
+        cutoff=None,
+        season=None,
+        league_id=None
     ):
-        """
-        Recupera le ultime partite della squadra
-        nella stagione e competizione corrente.
-        """
-
-        # La stagione e la competizione vengono
-        # impostate dal profilo caricato in app.py.
-        # Vengono aggiunte tramite i parametri
-        # ricevuti dal metodo di caricamento.
+        if season is None:
+            raise ValueError(
+                "La stagione è necessaria per recuperare la forma recente."
+            )
 
         matches = self._get_team_matches(
             team_id,
-            datetime.now(timezone.utc).year,
-            None,
+            season,
+            league_id,
             cutoff
         )
 
         completed = [
             match for match in matches
-            if match["status"] == "FT"
+            if match["status"] in ("FT", "AET", "PEN")
         ]
 
         return completed[-count:]
