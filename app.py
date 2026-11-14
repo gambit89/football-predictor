@@ -21,17 +21,22 @@ st.set_page_config(
 )
 
 st.title("⚽ Football Predictor")
+
 st.caption(
     "Previsioni pre-partita · Forma recente + rendimento stagionale · Poisson"
 )
 
 
+# --------------------------------------------------
+# SIDEBAR
+# --------------------------------------------------
+
 with st.sidebar:
     st.header("Calendario")
 
     days = st.slider(
-    "Giorni da visualizzare",
-    1, 10, 7
+        "Giorni da visualizzare",
+        1, 10, 7
     )
 
     max_matches = st.slider(
@@ -47,6 +52,10 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
+
+# --------------------------------------------------
+# FUNZIONI
+# --------------------------------------------------
 
 def parse_date(value):
     dt = datetime.fromisoformat(
@@ -149,7 +158,7 @@ if not fixtures:
 
 
 # --------------------------------------------------
-# VISUALIZZAZIONE PARTITE
+# PREPARAZIONE TABELLA PARTITE
 # --------------------------------------------------
 
 rows = []
@@ -182,32 +191,53 @@ if not rows:
     st.stop()
 
 
+# --------------------------------------------------
+# TABELLA INTERATTIVA
+# --------------------------------------------------
+
 st.subheader("Partite in programma")
 
-st.dataframe(
-    pd.DataFrame(rows).drop(columns=["_fixture"]),
-    use_container_width=True,
-    hide_index=True
+st.caption(
+    "Tocca una partita nella tabella per selezionarla "
+    "e visualizzare automaticamente il pronostico."
 )
 
-
-options = [
-    (
-        f"{row['Data']} | "
-        f"{row['Casa']} - {row['Trasferta']} "
-        f"({row['Competizione']})"
-    )
+fixtures_df = pd.DataFrame([
+    {
+        "Data": row["Data"],
+        "Competizione": row["Competizione"],
+        "Casa": row["Casa"],
+        "Trasferta": row["Trasferta"]
+    }
     for row in rows
-]
+])
 
-selected = st.selectbox(
-    "Scegli una partita",
-    options
+selection = st.dataframe(
+    fixtures_df,
+    use_container_width=True,
+    hide_index=True,
+    on_select="rerun",
+    selection_mode="single-row",
+    key="fixture_table"
 )
 
-match = rows[
-    options.index(selected)
-]["_fixture"]
+
+# --------------------------------------------------
+# RECUPERO PARTITA SELEZIONATA
+# --------------------------------------------------
+
+selected_rows = selection.selection.rows
+
+if not selected_rows:
+    st.info(
+        "Seleziona una partita dalla tabella per "
+        "elaborare il pronostico."
+    )
+    st.stop()
+
+
+selected_index = selected_rows[0]
+match = rows[selected_index]["_fixture"]
 
 
 # --------------------------------------------------
@@ -219,7 +249,6 @@ st.divider()
 st.subheader(
     f"{match['home']} – {match['away']}"
 )
-
 
 required_fields = [
     match.get("home_id"),
@@ -295,6 +324,7 @@ except Exception as exc:
     st.error(
         f"Impossibile elaborare la previsione: {exc}"
     )
+
     st.info(
         "Nessun pronostico è stato generato. "
         "Verifica disponibilità dei dati e copertura "
@@ -306,6 +336,8 @@ except Exception as exc:
 # --------------------------------------------------
 # RISULTATI MODELLO
 # --------------------------------------------------
+
+st.markdown("### Previsione della partita")
 
 c1, c2, c3 = st.columns(3)
 
