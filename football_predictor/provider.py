@@ -1,16 +1,19 @@
 
 import requests
-from datetime import timedelta, timezone, datetime
+from datetime import datetime, timedelta, timezone
 
 
 class APIFootballProvider:
 
     def __init__(self, api_key, base_url):
         self.base_url = base_url.rstrip("/")
-        self.headers = {"X-Auth-Token": api_key}
+        self.headers = {
+            "X-Auth-Token": api_key
+        }
 
     def _get(self, endpoint, params=None):
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
+
         response = requests.get(
             url,
             headers=self.headers,
@@ -18,26 +21,37 @@ class APIFootballProvider:
             timeout=30
         )
 
+        if response.status_code == 400:
+            raise RuntimeError(
+                f"Errore 400 football-data.org: {response.text}"
+            )
+
+        if response.status_code == 401:
+            raise RuntimeError(
+                "Autenticazione API non riuscita. "
+                "Controlla il Secret FOOTBALL_DATA_TOKEN."
+            )
+
         if response.status_code == 403:
             raise RuntimeError(
-                "Competizione o dati non inclusi nel piano football-data.org."
+                "Competizione o dati non inclusi nel piano "
+                "football-data.org."
             )
 
         if response.status_code == 429:
             raise RuntimeError(
-                "Limite richieste API raggiunto. Attendi prima di riprovare."
+                "Limite richieste API raggiunto. "
+                "Attendi prima di riprovare."
             )
 
-        if response.status_code == 400:
-    raise RuntimeError(
-        f"Errore 400 football-data.org: {response.text}"
-    )
+        response.raise_for_status()
 
-response.raise_for_status()
         data = response.json()
 
         if not isinstance(data, dict):
-            raise RuntimeError("Risposta API non valida.")
+            raise RuntimeError(
+                "Risposta API non valida."
+            )
 
         return data
 
@@ -62,14 +76,16 @@ response.raise_for_status()
             "AWARDED": "FT"
         }
 
+        season_start = season.get("startDate")
+
         return {
             "fixture_id": item.get("id"),
             "date": item.get("utcDate"),
             "league": competition.get("name"),
             "league_id": competition.get("code"),
             "season": (
-                int(season["startDate"][:4])
-                if season.get("startDate") else None
+                int(season_start[:4])
+                if season_start else None
             ),
             "country": (item.get("area") or {}).get("name"),
             "home": home.get("name"),
@@ -77,6 +93,7 @@ response.raise_for_status()
             "home_id": home.get("id"),
             "away_id": away.get("id"),
             "status": status_map.get(status, status),
+
             "fixture": {
                 "id": item.get("id"),
                 "date": item.get("utcDate"),
@@ -84,10 +101,18 @@ response.raise_for_status()
                     "short": status_map.get(status, status)
                 }
             },
+
             "teams": {
-                "home": {"id": home.get("id"), "name": home.get("name")},
-                "away": {"id": away.get("id"), "name": away.get("name")}
+                "home": {
+                    "id": home.get("id"),
+                    "name": home.get("name")
+                },
+                "away": {
+                    "id": away.get("id"),
+                    "name": away.get("name")
+                }
             },
+
             "goals": {
                 "home": full_time.get("home"),
                 "away": full_time.get("away")
@@ -110,7 +135,11 @@ response.raise_for_status()
             self._normalize_match(item)
             for item in data.get("matches", [])
         ]
-        fixtures.sort(key=lambda item: item["date"] or "")
+
+        fixtures.sort(
+            key=lambda item: item["date"] or ""
+        )
+
         return fixtures[:count]
 
     def _get_team_matches(
@@ -120,7 +149,10 @@ response.raise_for_status()
         league_id=None,
         cutoff=None
     ):
-        params = {"season": season, "limit": 100}
+        params = {
+            "season": season,
+            "limit": 100
+        }
 
         if league_id:
             params["competitions"] = league_id
@@ -128,13 +160,20 @@ response.raise_for_status()
         if cutoff:
             params["dateTo"] = cutoff
 
-        data = self._get(f"teams/{team_id}/matches", params)
+        data = self._get(
+            f"teams/{team_id}/matches",
+            params
+        )
 
         matches = [
             self._normalize_match(item)
             for item in data.get("matches", [])
         ]
-        matches.sort(key=lambda item: item["date"] or "")
+
+        matches.sort(
+            key=lambda item: item["date"] or ""
+        )
+
         return matches
 
     def get_team_season_stats(
@@ -145,20 +184,31 @@ response.raise_for_status()
         cutoff=None
     ):
         matches = self._get_team_matches(
-            team_id, season, league_id, cutoff
+            team_id,
+            season,
+            league_id,
+            cutoff
         )
 
         stats = {
             "goals": {
-                "for": {"average": {}},
-                "against": {"average": {}}
+                "for": {
+                    "average": {}
+                },
+                "against": {
+                    "average": {}
+                }
             }
         }
 
-        venues = {"home": [], "away": [], "total": []}
+        venues = {
+            "home": [],
+            "away": [],
+            "total": []
+        }
 
         for match in matches:
-            if match["status"] != "FT":
+            if match["status"] not in ("FT", "AET", "PEN"):
                 continue
 
             goals = match["goals"]
@@ -176,16 +226,22 @@ response.raise_for_status()
                 venues["total"].append((ga, gh))
 
         for venue, results in venues.items():
+
             if not results:
                 stats["goals"]["for"]["average"][venue] = None
                 stats["goals"]["against"]["average"][venue] = None
                 continue
 
             stats["goals"]["for"]["average"][venue] = round(
-                sum(result[0] for result in results) / len(results), 3
+                sum(result[0] for result in results)
+                / len(results),
+                3
             )
+
             stats["goals"]["against"]["average"][venue] = round(
-                sum(result[1] for result in results) / len(results), 3
+                sum(result[1] for result in results)
+                / len(results),
+                3
             )
 
         return stats
@@ -200,7 +256,8 @@ response.raise_for_status()
     ):
         if season is None:
             raise ValueError(
-                "La stagione è necessaria per recuperare la forma recente."
+                "La stagione è necessaria per recuperare "
+                "la forma recente."
             )
 
         matches = self._get_team_matches(
@@ -211,7 +268,8 @@ response.raise_for_status()
         )
 
         completed = [
-            match for match in matches
+            match
+            for match in matches
             if match["status"] in ("FT", "AET", "PEN")
         ]
 
