@@ -48,7 +48,7 @@ class APIFootballProvider:
         fixtures = []
         seen_ids = set()
 
-        for day in range(15):
+     afor day in range(-1, 2):
 
             current_date = (
                 today + timedelta(days=day)
