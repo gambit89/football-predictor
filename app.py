@@ -158,7 +158,7 @@ if not fixtures:
 
 
 # --------------------------------------------------
-# PREPARAZIONE TABELLA PARTITE
+# PREPARAZIONE DATI
 # --------------------------------------------------
 
 rows = []
@@ -176,6 +176,7 @@ for fixture in fixtures:
 
     rows.append({
         "Data": dt.strftime("%d/%m %H:%M"),
+        "Data_filtro": dt.strftime("%Y-%m-%d"),
         "Competizione": (
             f"{fixture.get('league', 'N/D')} · "
             f"{fixture.get('country', 'N/D')}"
@@ -192,15 +193,83 @@ if not rows:
 
 
 # --------------------------------------------------
-# TABELLA INTERATTIVA
+# FILTRI DATA E CAMPIONATO
 # --------------------------------------------------
 
 st.subheader("Partite in programma")
 
 st.caption(
-    "Tocca una partita nella tabella per selezionarla "
-    "e visualizzare automaticamente il pronostico."
+    "Filtra il calendario per giornata e campionato, "
+    "poi tocca una partita per visualizzare il pronostico."
 )
+
+filter_col1, filter_col2 = st.columns(2)
+
+date_options = sorted(
+    set(row["Data_filtro"] for row in rows)
+)
+
+league_options = sorted(
+    set(row["Competizione"] for row in rows)
+)
+
+with filter_col1:
+    selected_date = st.selectbox(
+        "📅 Data",
+        options=["Tutte le date"] + date_options,
+        format_func=lambda value: (
+            "Tutte le date"
+            if value == "Tutte le date"
+            else datetime.strptime(
+                value, "%Y-%m-%d"
+            ).strftime("%d/%m/%Y")
+        ),
+        key="date_filter"
+    )
+
+with filter_col2:
+    selected_league = st.selectbox(
+        "🏆 Campionato",
+        options=["Tutti i campionati"] + league_options,
+        key="league_filter"
+    )
+
+
+# --------------------------------------------------
+# APPLICAZIONE FILTRI
+# --------------------------------------------------
+
+filtered_rows = rows.copy()
+
+if selected_date != "Tutte le date":
+    filtered_rows = [
+        row for row in filtered_rows
+        if row["Data_filtro"] == selected_date
+    ]
+
+if selected_league != "Tutti i campionati":
+    filtered_rows = [
+        row for row in filtered_rows
+        if row["Competizione"] == selected_league
+    ]
+
+
+st.caption(
+    f"Partite trovate: {len(filtered_rows)}"
+)
+
+
+if not filtered_rows:
+    st.warning(
+        "Nessuna partita corrisponde ai filtri selezionati. "
+        "Prova a modificare data o campionato."
+    )
+    st.stop()
+
+
+# --------------------------------------------------
+# TABELLA INTERATTIVA
+# --------------------------------------------------
 
 fixtures_df = pd.DataFrame([
     {
@@ -209,8 +278,14 @@ fixtures_df = pd.DataFrame([
         "Casa": row["Casa"],
         "Trasferta": row["Trasferta"]
     }
-    for row in rows
+    for row in filtered_rows
 ])
+
+# La chiave cambia con i filtri, così una vecchia
+# selezione non viene associata a una partita diversa.
+table_key = (
+    f"fixture_table_{selected_date}_{selected_league}"
+)
 
 selection = st.dataframe(
     fixtures_df,
@@ -218,7 +293,7 @@ selection = st.dataframe(
     hide_index=True,
     on_select="rerun",
     selection_mode="single-row",
-    key="fixture_table"
+    key=table_key
 )
 
 
@@ -230,14 +305,14 @@ selected_rows = selection.selection.rows
 
 if not selected_rows:
     st.info(
-        "Seleziona una partita dalla tabella per "
-        "elaborare il pronostico."
+        "Seleziona una partita dalla tabella "
+        "per elaborare il pronostico."
     )
     st.stop()
 
 
 selected_index = selected_rows[0]
-match = rows[selected_index]["_fixture"]
+match = filtered_rows[selected_index]["_fixture"]
 
 
 # --------------------------------------------------
