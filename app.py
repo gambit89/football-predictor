@@ -30,8 +30,8 @@ with st.sidebar:
     st.header("Calendario")
 
     days = st.slider(
-        "Giorni da visualizzare",
-        1, 14, 7
+    "Giorni da visualizzare",
+    1, 10, 7
     )
 
     max_matches = st.slider(
