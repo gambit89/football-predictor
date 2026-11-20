@@ -31,7 +31,13 @@ class APIFootballProvider:
             )
         response.raise_for_status()
         data = response.json()
-        if not isinstance(data, dict) or not isinstance(data.get("response"), list):
+        # Most API-Football endpoints return a list, while teams/statistics
+        # returns a single object. Both are valid response shapes.
+        if (
+            not isinstance(data, dict)
+            or "response" not in data
+            or not isinstance(data["response"], (list, dict))
+        ):
             raise RuntimeError("Risposta API-Football non valida.")
         errors = data.get("errors")
         if errors:
