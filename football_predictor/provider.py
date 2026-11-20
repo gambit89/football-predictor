@@ -115,9 +115,10 @@ class APIFootballProvider:
             }
         }
 
-    def get_next_fixtures(self, count=50):
+    def get_next_fixtures(self, count=500, days=30):
         today = datetime.now(timezone.utc).date()
-        end_date = today + timedelta(days=9)
+        # football-data.org treats dateTo as an exclusive boundary.
+        end_date = today + timedelta(days=days + 1)
 
         data = self._get(
             "matches",
@@ -269,3 +270,4 @@ class APIFootballProvider:
         ]
 
         return completed[-count:]
+
