@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
+import unicodedata
 from football_predictor.provider import APIFootballProvider
 from football_predictor.model import predict_from_profiles, build_team_profile
 from football_predictor.storage import save_prediction
@@ -26,11 +27,41 @@ PRIMARY_LEAGUES = {
     "Argentina": {"Liga Profesional": 128, "Primera Nacional": 129},
     "Brasile": {"Serie A": 71, "Serie B": 72},
     "USA": {"Major League Soccer": 253, "USL Championship": 255},
+    "Turchia": {"Süper Lig": 203, "1. Lig": 204},
+    "Grecia": {"Super League 1": 197, "Super League 2": 494},
+    "Austria": {"Bundesliga": 218, "2. Liga": 219},
+    "Svizzera": {"Super League": 207, "Challenge League": 208},
+    "Danimarca": {"Superliga": 119, "1st Division": 120},
+    "Norvegia": {"Eliteserien": 103, "1. Division": 104},
+    "Svezia": {"Allsvenskan": 113, "Superettan": 114},
+    "Repubblica Ceca": {"Czech Liga": 345, "FNL": 346},
+    "Giappone": {"J1 League": 98, "J2 League": 99},
+    "Messico": {"Liga MX": 262, "Liga de Expansión MX": 263},
+    "Colombia": {"Primera A": 239, "Primera B": 240},
+    "Cile": {"Primera División": 265, "Primera B": 266},
+    "Uruguay": {"Primera División": 268, "Segunda División": 269},
+    "Ecuador": {"Liga Pro": 242, "Liga Pro Serie B": 243},
+    "Paraguay": {"Primera División": 250, "División Intermedia": 252},
+    "Perù": {"Primera División": 281, "Liga 2": 282},
+    "Corea del Sud": {"K League 1": 292, "K League 2": 293},
+    "Arabia Saudita": {"Pro League": 307, "Division 1": 308},
+    "Sudafrica": {"Premier Soccer League": 288, "National First Division": 289},
+    "Marocco": {"Botola Pro": 200, "Botola 2": 201},
 }
 LEAGUE_NAME_BY_ID = {
     league_id: f"{country} · {name}"
     for country, leagues in PRIMARY_LEAGUES.items()
     for name, league_id in leagues.items()
+}
+DYNAMIC_COMPETITIONS = {
+    "Armenia": {"Premier League", "First League"},
+    "Australia": {"A-League", "Australian Championship"},
+    "Algeria": {"Ligue 1", "Ligue 2"},
+    "Tunisia": {"Ligue 1", "Ligue 2"},
+    "India": {"Indian Super League", "I-League"},
+    "Indonesia": {"Liga 1", "Liga 2"},
+    "England": {"League One", "League Two"},
+    "Italy": {"Serie C - Girone A", "Serie C - Girone B", "Serie C - Girone C"},
 }
 
 st.set_page_config(page_title="Football Predictor", page_icon="⚽", layout="wide")
@@ -43,9 +74,30 @@ def parse_date(value):
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def normalize_label(value):
+    decomposed = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return " ".join("".join(ch for ch in decomposed if not unicodedata.combining(ch)).split())
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def load_fixtures(key, base, match_date, league_ids, count):
     return APIFootballProvider(key, base).get_fixtures_for_date(match_date, league_ids, count)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def load_dynamic_leagues(key, base, season):
+    catalog = APIFootballProvider(key, base).get_leagues_for_season(season)
+    matches = []
+    for item in catalog:
+        league = item.get("league") or {}
+        country = (item.get("country") or {}).get("name")
+        name = league.get("name")
+        if not country or not name or country not in DYNAMIC_COMPETITIONS:
+            continue
+        allowed_names = {normalize_label(value) for value in DYNAMIC_COMPETITIONS[country]}
+        if normalize_label(name) in allowed_names:
+            matches.append((int(league["id"]), f"{country} · {name}"))
+    return tuple(sorted(set(matches), key=lambda entry: entry[1]))
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -62,16 +114,33 @@ with st.sidebar:
     calendar_days = [today + timedelta(days=offset) for offset in range(8)]
     selected_day = st.selectbox("Giornata", calendar_days, format_func=lambda day: day.strftime("%A %d/%m/%Y"))
     st.caption("Da oggi ai prossimi 7 giorni.")
-    all_primary_ids = [league_id for leagues in PRIMARY_LEAGUES.values() for league_id in leagues.values()]
-    selected_leagues = st.multiselect(
-        "Campionati principali", options=all_primary_ids, default=all_primary_ids,
-        format_func=lambda league_id: LEAGUE_NAME_BY_ID[league_id],
-    )
-    st.caption("Riduci la selezione per diminuire il numero di chiamate al provider.")
     max_matches = st.slider("Partite da caricare", 10, 500, 200, 10)
     if st.button("Aggiorna calendario"):
         st.cache_data.clear()
         st.rerun()
+
+if not API_KEY:
+    st.error("Chiave API-Football non configurata. Inserisci API_FOOTBALL_KEY nelle Secrets di Streamlit Cloud.")
+    st.stop()
+
+dynamic_leagues = ()
+try:
+    with st.spinner("Aggiornamento campionati richiesti..."):
+        dynamic_leagues = load_dynamic_leagues(API_KEY, API_BASE_URL, selected_day.year)
+except Exception as exc:
+    st.warning(f"Elenco aggiornato dei campionati aggiuntivi non disponibile: {exc}")
+
+for league_id, label in dynamic_leagues:
+    LEAGUE_NAME_BY_ID[league_id] = label
+all_league_ids = [league_id for leagues in PRIMARY_LEAGUES.values() for league_id in leagues.values()]
+all_league_ids.extend(league_id for league_id, _ in dynamic_leagues)
+all_league_ids = sorted(set(all_league_ids))
+with st.sidebar:
+    selected_leagues = st.multiselect(
+        "Campionati da analizzare", options=all_league_ids, default=all_league_ids,
+        format_func=lambda league_id: LEAGUE_NAME_BY_ID[league_id], key="selected_competitions_v2",
+    )
+    st.caption("Riduci la selezione per diminuire il numero di chiamate al provider.")
 
 selection_context = (selected_day.isoformat(), tuple(sorted(selected_leagues)))
 if st.session_state.get("fixture_context") != selection_context:
@@ -79,11 +148,7 @@ if st.session_state.get("fixture_context") != selection_context:
     st.session_state["selected_fixture"] = None
 
 if not selected_leagues:
-    st.info("Seleziona almeno un campionato principale per caricare il calendario.")
-    st.stop()
-
-if not API_KEY:
-    st.error("Chiave API-Football non configurata. Inserisci API_FOOTBALL_KEY nelle Secrets di Streamlit Cloud.")
+    st.info("Seleziona almeno un campionato per caricare il calendario.")
     st.stop()
 
 try:
@@ -117,8 +182,8 @@ if not rows:
     st.info("Nessuna partita da disputare o in corso nella data selezionata e nei campionati scelti.")
     st.stop()
 
-st.subheader(f"Partite · {selected_day.strftime('%d/%m/%Y')}")
-st.caption(f"Gare trovate: {len(rows)} · campionati selezionati: {len(selected_leagues)}")
+st.subheader(f"Partite del giorno: {len(rows)}")
+st.caption(f"Data selezionata: {selected_day.strftime('%d/%m/%Y')} · campionati selezionati: {len(selected_leagues)}")
 
 
 def render_fixture_module(module_key, title, module_rows):
@@ -148,9 +213,7 @@ def render_fixture_module(module_key, title, module_rows):
         )
 
 
-render_fixture_module("primary", "🏆 Campionati principali", rows)
-st.markdown("### 🌍 Campionati secondari")
-st.caption("Sezione disattivata per ora; verrà ampliata su richiesta.")
+render_fixture_module("primary", "Partite dei campionati selezionati", rows)
 
 match = st.session_state.get("selected_fixture")
 if not match:
