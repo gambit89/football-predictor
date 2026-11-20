@@ -34,19 +34,19 @@ PRIMARY_LEAGUES = {
     "Danimarca": {"Superliga": 119, "1st Division": 120},
     "Norvegia": {"Eliteserien": 103, "1. Division": 104},
     "Svezia": {"Allsvenskan": 113, "Superettan": 114},
-    "Repubblica Ceca": {"Czech Liga": 345, "FNL": 346},
+    "Repubblica Ceca": {"Czech Liga": 345},
     "Giappone": {"J1 League": 98, "J2 League": 99},
     "Messico": {"Liga MX": 262, "Liga de Expansión MX": 263},
     "Colombia": {"Primera A": 239, "Primera B": 240},
     "Cile": {"Primera División": 265, "Primera B": 266},
     "Uruguay": {"Primera División": 268, "Segunda División": 269},
     "Ecuador": {"Liga Pro": 242, "Liga Pro Serie B": 243},
-    "Paraguay": {"Primera División": 250, "División Intermedia": 252},
+    "Paraguay": {"Primera División": 250},
     "Perù": {"Primera División": 281, "Liga 2": 282},
     "Corea del Sud": {"K League 1": 292, "K League 2": 293},
-    "Arabia Saudita": {"Pro League": 307, "Division 1": 308},
-    "Sudafrica": {"Premier Soccer League": 288, "National First Division": 289},
-    "Marocco": {"Botola Pro": 200, "Botola 2": 201},
+    "Arabia Saudita": {"Pro League": 307},
+    "Sudafrica": {"Premier Soccer League": 288},
+    "Marocco": {"Botola Pro": 200},
 }
 LEAGUE_NAME_BY_ID = {
     league_id: f"{country} · {name}"
@@ -54,10 +54,10 @@ LEAGUE_NAME_BY_ID = {
     for name, league_id in leagues.items()
 }
 DYNAMIC_COMPETITIONS = {
-    "Armenia": {"Premier League", "First League"},
-    "Australia": {"A-League", "Australian Championship"},
-    "Algeria": {"Ligue 1", "Ligue 2"},
-    "Tunisia": {"Ligue 1", "Ligue 2"},
+    "Armenia": {"Premier League"},
+    "Australia": {"A-League"},
+    "Algeria": {"Ligue 1"},
+    "Tunisia": {"Ligue 1"},
     "India": {"Indian Super League", "I-League"},
     "Indonesia": {"Liga 1", "Liga 2"},
     "England": {"League One", "League Two"},
