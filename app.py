@@ -19,8 +19,8 @@ def parse_date(value):
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
-def load_fixtures(key, base, count):
-    return APIFootballProvider(key, base).get_next_fixtures(count)
+def load_fixtures(key, base, count, days):
+    return APIFootballProvider(key, base).get_next_fixtures(count, days)
 
 
 @st.cache_data(ttl=86400, show_spinner=False)
@@ -33,8 +33,8 @@ def load_team_profile(key, base, team_id, league_id, season, cutoff):
 
 with st.sidebar:
     st.header("Calendario")
-    days = st.slider("Giorni da visualizzare", 1, 10, 7)
-    max_matches = st.slider("Partite da caricare", 10, 99, 50, 5)
+    days = st.slider("Giorni da visualizzare", 1, 30, 14)
+    max_matches = st.slider("Partite da caricare", 10, 500, 200, 10)
     if st.button("Aggiorna calendario"):
         st.cache_data.clear()
         st.rerun()
@@ -45,7 +45,7 @@ if not API_KEY:
 
 try:
     with st.spinner("Caricamento calendario..."):
-        fixtures = load_fixtures(API_KEY, API_BASE_URL, max_matches)
+        fixtures = load_fixtures(API_KEY, API_BASE_URL, max_matches, days)
     cutoff_dt = datetime.now(timezone.utc) + timedelta(days=days)
     fixtures = [f for f in fixtures if f.get("date") and parse_date(f["date"]) <= cutoff_dt]
 except Exception as exc:
@@ -171,5 +171,6 @@ if st.button("Salva questa previsione nello storico"):
         st.error(f"Errore durante il salvataggio: {exc}")
 
 st.caption("Modello Poisson indipendente basato esclusivamente sui gol fatti/subiti e sulla sede. Le probabilità sono stime e non garantiscono risultati.")
+
 
 
