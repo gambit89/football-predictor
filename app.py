@@ -120,11 +120,37 @@ col1.metric("λ gol casa", f"{pred['lambda_home']:.2f}")
 col2.metric("λ gol trasferta", f"{pred['lambda_away']:.2f}")
 col3.metric("Risultato modale", pred["most_likely_score"])
 
+def style_probability_rows(frame, threshold=None):
+    best_probability = frame["Probabilità"].max()
+
+    def highlight_value(row):
+        probability = row["Probabilità"]
+        should_highlight = (
+            probability > threshold
+            if threshold is not None
+            else probability == best_probability
+        )
+        styles = [""] * len(row)
+        if should_highlight:
+            probability_column = row.index.get_loc("Probabilità")
+            styles[probability_column] = (
+                "background-color: #176B3A; color: white; font-weight: bold"
+            )
+        return styles
+
+    return frame.style.apply(highlight_value, axis=1)
+
+
 st.markdown("#### Probabilità 1X2")
-st.dataframe(pd.DataFrame({
+one_x_two = pd.DataFrame({
     "Esito": ["1 · Vittoria casa", "X · Pareggio", "2 · Vittoria trasferta"],
     "Probabilità": [pred["home_win"], pred["draw"], pred["away_win"]],
-}).style.format({"Probabilità": "{:.1%}"}), use_container_width=True, hide_index=True)
+})
+st.dataframe(
+    style_probability_rows(one_x_two).format({"Probabilità": "{:.1%}"}),
+    use_container_width=True,
+    hide_index=True,
+)
 
 def style_market_pair(frame):
     highest_probability = frame["Probabilità"].max()
@@ -152,16 +178,29 @@ for threshold in ("15", "25", "35"):
     st.dataframe(style_market_pair(pair), use_container_width=True, hide_index=True)
 
 st.markdown("#### BTTS")
-st.dataframe(pd.DataFrame({
+btts_markets = pd.DataFrame({
     "Mercato": ["Goal (entrambe segnano)", "No Goal"],
     "Probabilità": [pred["btts"], pred["no_btts"]],
-}).style.format({"Probabilità": "{:.1%}"}), use_container_width=True, hide_index=True)
+})
+st.dataframe(
+    style_probability_rows(btts_markets).format({"Probabilità": "{:.1%}"}),
+    use_container_width=True,
+    hide_index=True,
+)
 
 st.markdown("#### Top 10 risultati esatti")
-st.dataframe(pd.DataFrame([
+exact_scores = pd.DataFrame([
     {"Risultato": score, "Probabilità": probability}
     for score, probability in pred["top_scores"]
-]).style.format({"Probabilità": "{:.2%}"}), use_container_width=True, hide_index=True)
+])
+st.dataframe(
+    style_probability_rows(exact_scores, threshold=0.10).format(
+        {"Probabilità": "{:.2%}"}
+    ),
+    use_container_width=True,
+    hide_index=True,
+)
+st.caption("In verde i risultati esatti con probabilità superiore al 10%.")
 
 if st.button("Salva questa previsione nello storico"):
     try:
@@ -171,6 +210,7 @@ if st.button("Salva questa previsione nello storico"):
         st.error(f"Errore durante il salvataggio: {exc}")
 
 st.caption("Modello Poisson indipendente basato esclusivamente sui gol fatti/subiti e sulla sede. Le probabilità sono stime e non garantiscono risultati.")
+
 
 
 
