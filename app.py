@@ -190,10 +190,8 @@ def style_probability_rows(frame, threshold=None):
     def highlight_value(row):
         probability = row["Probabilità"]
         should_highlight = probability > threshold if threshold is not None else probability == best_probability
-        styles = [""] * len(row)
-        if should_highlight:
-            styles[row.index.get_loc("Probabilità")] = "background-color: #176B3A; color: white; font-weight: bold"
-        return styles
+        style = "background-color: #176B3A; color: white; font-weight: bold" if should_highlight else ""
+        return [style] * len(row)
 
     return frame.style.apply(highlight_value, axis=1)
 
@@ -205,15 +203,20 @@ one_x_two = pd.DataFrame({
 })
 st.dataframe(style_probability_rows(one_x_two).format({"Probabilità": "{:.1%}"}), use_container_width=True, hide_index=True)
 
+st.markdown("#### Doppia Chance")
+double_chance = pd.DataFrame({
+    "Esito": ["1X · Casa o pareggio", "X2 · Pareggio o trasferta", "12 · Una delle due vince"],
+    "Probabilità": [
+        pred["home_win"] + pred["draw"],
+        pred["draw"] + pred["away_win"],
+        pred["home_win"] + pred["away_win"],
+    ],
+})
+st.dataframe(style_probability_rows(double_chance).format({"Probabilità": "{:.1%}"}), use_container_width=True, hide_index=True)
+
 
 def style_market_pair(frame):
-    highest_probability = frame["Probabilità"].max()
-
-    def highlight_highest(row):
-        style = "background-color: #176B3A; color: white; font-weight: bold" if row["Probabilità"] == highest_probability else "font-weight: bold"
-        return [style] * len(row)
-
-    return frame.style.apply(highlight_highest, axis=1).format({"Probabilità": "{:.1%}"})
+    return style_probability_rows(frame).format({"Probabilità": "{:.1%}"})
 
 
 for threshold in ("15", "25", "35"):
