@@ -1,4 +1,3 @@
-
 import os
 
 import streamlit as st
@@ -9,18 +8,13 @@ load_dotenv()
 
 def get_secret(name, default=""):
     try:
-        return st.secrets.get(
-            name,
-            os.getenv(name, default)
-        )
+        return st.secrets.get(name, os.getenv(name, default))
     except Exception:
         return os.getenv(name, default)
 
 
-# Nuovo provider: football-data.org
-API_KEY = get_secret("FOOTBALL_DATA_TOKEN")
-
+API_KEY = get_secret("API_FOOTBALL_KEY")
 API_BASE_URL = get_secret(
-    "FOOTBALL_DATA_BASE_URL",
-    "https://api.football-data.org/v4"
+    "API_FOOTBALL_BASE_URL",
+    "https://v3.football.api-sports.io",
 )
