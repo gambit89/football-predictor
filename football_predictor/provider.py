@@ -1,285 +1,154 @@
+from datetime import datetime, timedelta, timezone
 
 import requests
-from datetime import datetime, timedelta, timezone
 
 
 class APIFootballProvider:
+    """API-Football v3 adapter; returns the structures expected by the model."""
 
-    def __init__(self, api_key, base_url):
+    def __init__(self, api_key, base_url="https://v3.football.api-sports.io"):
         self.base_url = base_url.rstrip("/")
-        self.headers = {
-            "X-Auth-Token": api_key
-        }
+        self.headers = {"x-apisports-key": api_key}
 
     def _get(self, endpoint, params=None):
-        url = f"{self.base_url}/{endpoint.lstrip('/')}"
-
         response = requests.get(
-            url,
+            f"{self.base_url}/{endpoint.lstrip('/')}",
             headers=self.headers,
             params=params or {},
-            timeout=30
+            timeout=30,
         )
-
-        if response.status_code == 400:
-            raise RuntimeError(
-                f"Errore 400 football-data.org: {response.text}"
-            )
-
         if response.status_code == 401:
             raise RuntimeError(
-                "Autenticazione API non riuscita. "
-                "Controlla FOOTBALL_DATA_TOKEN."
+                "Autenticazione API-Football non riuscita. Controlla API_FOOTBALL_KEY."
             )
-
         if response.status_code == 403:
             raise RuntimeError(
-                "Competizione o dati non inclusi nel piano API."
+                "Accesso API-Football negato: verifica piano, endpoint e copertura."
             )
-
         if response.status_code == 429:
             raise RuntimeError(
-                "Limite richieste API raggiunto. Attendi prima di riprovare."
+                "Limite richieste API-Football raggiunto. Attendi prima di riprovare."
             )
-
         response.raise_for_status()
-
         data = response.json()
-
-        if not isinstance(data, dict):
-            raise RuntimeError("Risposta API non valida.")
-
+        if not isinstance(data, dict) or not isinstance(data.get("response"), list):
+            raise RuntimeError("Risposta API-Football non valida.")
+        errors = data.get("errors")
+        if errors:
+            raise RuntimeError(f"Errore API-Football: {errors}")
         return data
 
-    def _normalize_match(self, item):
-        home = item.get("homeTeam") or {}
-        away = item.get("awayTeam") or {}
-        competition = item.get("competition") or {}
-        season = item.get("season") or {}
-        score = item.get("score") or {}
-        full_time = score.get("fullTime") or {}
-        status = item.get("status")
-
-        status_map = {
-            "FINISHED": "FT",
-            "IN_PLAY": "LIVE",
-            "PAUSED": "HT",
-            "SCHEDULED": "NS",
-            "TIMED": "NS",
-            "POSTPONED": "PST",
-            "CANCELLED": "CANC",
-            "SUSPENDED": "SUSP",
-            "AWARDED": "FT"
-        }
-
-        season_start = season.get("startDate")
-
+    @staticmethod
+    def _normalize_match(item):
+        fixture = item.get("fixture") or {}
+        league = item.get("league") or {}
+        teams = item.get("teams") or {}
+        home = teams.get("home") or {}
+        away = teams.get("away") or {}
+        goals = item.get("goals") or {}
+        status = (fixture.get("status") or {}).get("short")
         return {
-            "fixture_id": item.get("id"),
-            "date": item.get("utcDate"),
-            "league": competition.get("name"),
-            "league_id": competition.get("code"),
-            "season": (
-                int(season_start[:4])
-                if season_start else None
-            ),
-            "country": (item.get("area") or {}).get("name"),
+            "fixture_id": fixture.get("id"),
+            "date": fixture.get("date"),
+            "league": league.get("name"),
+            "league_id": league.get("id"),
+            "season": league.get("season"),
+            "country": league.get("country"),
             "home": home.get("name"),
             "away": away.get("name"),
             "home_id": home.get("id"),
             "away_id": away.get("id"),
-            "status": status_map.get(status, status),
-
+            "status": status,
             "fixture": {
-                "id": item.get("id"),
-                "date": item.get("utcDate"),
-                "status": {
-                    "short": status_map.get(status, status)
-                }
+                "id": fixture.get("id"),
+                "date": fixture.get("date"),
+                "status": {"short": status},
             },
-
             "teams": {
-                "home": {
-                    "id": home.get("id"),
-                    "name": home.get("name")
-                },
-                "away": {
-                    "id": away.get("id"),
-                    "name": away.get("name")
-                }
+                "home": {"id": home.get("id"), "name": home.get("name")},
+                "away": {"id": away.get("id"), "name": away.get("name")},
             },
-
-            "goals": {
-                "home": full_time.get("home"),
-                "away": full_time.get("away")
-            }
+            "goals": {"home": goals.get("home"), "away": goals.get("away")},
         }
 
     def get_next_fixtures(self, count=500, days=30):
         today = datetime.now(timezone.utc).date()
-        end_date = today + timedelta(days=days + 1)
-        cursor = today
-        fixtures_by_id = {}
-
-        # football-data.org accepts at most ten days in each date range.
-        while cursor < end_date:
-            batch_end = min(cursor + timedelta(days=10), end_date)
-            data = self._get(
-                "matches",
-                {
-                    "dateFrom": cursor.isoformat(),
-                    "dateTo": batch_end.isoformat()
-                }
-            )
-
-            for item in data.get("matches", []):
-                fixture = self._normalize_match(item)
-                fixture_key = fixture.get("fixture_id") or (
-                    fixture.get("date"),
-                    fixture.get("league_id"),
-                    fixture.get("home_id"),
-                    fixture.get("away_id"),
-                )
-                fixtures_by_id[fixture_key] = fixture
-
-            cursor = batch_end
-
-        fixtures = sorted(
-            fixtures_by_id.values(),
-            key=lambda item: item["date"] or ""
-        )
-        return fixtures[:count]
-
-    def _get_team_matches(
-        self,
-        team_id,
-        season,
-        league_id=None,
-        cutoff=None
-    ):
         params = {
-            "season": season,
-            "limit": 100
+            "from": today.isoformat(),
+            "to": (today + timedelta(days=days)).isoformat(),
+            "timezone": "Europe/Rome",
+            "page": 1,
         }
+        matches = []
+        while True:
+            data = self._get("fixtures", params)
+            matches.extend(self._normalize_match(item) for item in data["response"])
+            paging = data.get("paging") or {}
+            current = int(paging.get("current") or params["page"])
+            total = int(paging.get("total") or current)
+            if current >= total or len(matches) >= count:
+                break
+            params["page"] = current + 1
+        matches.sort(key=lambda match: match["date"] or "")
+        return matches[:count]
 
-        if league_id:
-            params["competitions"] = league_id
-
+    def _get_team_matches(self, team_id, season, league_id=None, cutoff=None):
+        params = {
+            "team": team_id,
+            "season": season,
+            "last": 20,
+            "status": "FT-AET-PEN",
+            "timezone": "Europe/Rome",
+        }
+        if league_id is not None:
+            params["league"] = league_id
         if cutoff:
-            cutoff_date = datetime.fromisoformat(
-                cutoff
-            ).date()
-
-            start_date = cutoff_date - timedelta(days=364)
-
-            params["dateFrom"] = start_date.isoformat()
-            params["dateTo"] = cutoff_date.isoformat()
-
-        data = self._get(
-            f"teams/{team_id}/matches",
-            params
-        )
-
-        matches = [
-            self._normalize_match(item)
-            for item in data.get("matches", [])
-        ]
-
-        matches.sort(
-            key=lambda item: item["date"] or ""
-        )
-
+            params["to"] = cutoff
+        data = self._get("fixtures", params)
+        matches = [self._normalize_match(item) for item in data["response"]]
+        matches.sort(key=lambda match: match["date"] or "")
         return matches
 
-    def get_team_season_stats(
-        self,
-        team_id,
-        league_id,
-        season,
-        cutoff=None
-    ):
-        matches = self._get_team_matches(
-            team_id,
-            season,
-            league_id,
-            cutoff
-        )
+    def get_team_season_stats(self, team_id, league_id, season, cutoff=None):
+        params = {"team": team_id, "league": league_id, "season": season}
+        if cutoff:
+            params["date"] = cutoff
+        data = self._get("teams/statistics", params)
+        result = data["response"] or {}
+        goals = result.get("goals") or {}
+        scored = goals.get("for") or {}
+        conceded = goals.get("against") or {}
+        scored_avg = scored.get("average") or {}
+        conceded_avg = conceded.get("average") or {}
 
-        stats = {
+        def number(value):
+            try:
+                return round(float(value), 3) if value is not None and value != "-" else None
+            except (TypeError, ValueError):
+                return None
+
+        return {
             "goals": {
-                "for": {"average": {}},
-                "against": {"average": {}}
+                "for": {"average": {
+                    "home": number(scored_avg.get("home")),
+                    "away": number(scored_avg.get("away")),
+                    "total": number(scored_avg.get("total")),
+                }},
+                "against": {"average": {
+                    "home": number(conceded_avg.get("home")),
+                    "away": number(conceded_avg.get("away")),
+                    "total": number(conceded_avg.get("total")),
+                }},
             }
         }
 
-        venues = {
-            "home": [],
-            "away": [],
-            "total": []
-        }
-
-        for match in matches:
-            if match["status"] not in ("FT", "AET", "PEN"):
-                continue
-
-            goals = match["goals"]
-            gh = goals["home"]
-            ga = goals["away"]
-
-            if gh is None or ga is None:
-                continue
-
-            if match["home_id"] == team_id:
-                venues["home"].append((gh, ga))
-                venues["total"].append((gh, ga))
-            else:
-                venues["away"].append((ga, gh))
-                venues["total"].append((ga, gh))
-
-        for venue, results in venues.items():
-            if not results:
-                stats["goals"]["for"]["average"][venue] = None
-                stats["goals"]["against"]["average"][venue] = None
-                continue
-
-            stats["goals"]["for"]["average"][venue] = round(
-                sum(result[0] for result in results) / len(results),
-                3
-            )
-
-            stats["goals"]["against"]["average"][venue] = round(
-                sum(result[1] for result in results) / len(results),
-                3
-            )
-
-        return stats
-
     def get_last_fixtures(
-        self,
-        team_id,
-        count=10,
-        cutoff=None,
-        season=None,
-        league_id=None
+        self, team_id, count=10, cutoff=None, season=None, league_id=None
     ):
         if season is None:
-            raise ValueError(
-                "La stagione è necessaria per recuperare la forma recente."
-            )
-
-        matches = self._get_team_matches(
-            team_id,
-            season,
-            league_id,
-            cutoff
-        )
-
+            raise ValueError("La stagione è necessaria per recuperare la forma recente.")
+        matches = self._get_team_matches(team_id, season, league_id, cutoff)
         completed = [
-            match
-            for match in matches
-            if match["status"] in ("FT", "AET", "PEN")
+            match for match in matches if match["status"] in {"FT", "AET", "PEN"}
         ]
-
         return completed[-count:]
-
-
