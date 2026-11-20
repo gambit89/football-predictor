@@ -126,15 +126,30 @@ st.dataframe(pd.DataFrame({
     "Probabilità": [pred["home_win"], pred["draw"], pred["away_win"]],
 }).style.format({"Probabilità": "{:.1%}"}), use_container_width=True, hide_index=True)
 
-st.markdown("#### Over / Under")
-market_rows = []
+def style_market_pair(frame):
+    highest_probability = frame["Probabilità"].max()
+
+    def highlight_highest(row):
+        style = (
+            "background-color: #176B3A; color: white; font-weight: bold"
+            if row["Probabilità"] == highest_probability
+            else "font-weight: bold"
+        )
+        return [style] * len(row)
+
+    return frame.style.apply(highlight_highest, axis=1).format(
+        {"Probabilità": "{:.1%}"}
+    )
+
+
 for threshold in ("15", "25", "35"):
     label = f"{threshold[0]}.{threshold[1]}"
-    market_rows.extend([
-        {"Mercato": f"Over {label}", "Probabilità": pred[f"over_{threshold}"]},
-        {"Mercato": f"Under {label}", "Probabilità": pred[f"under_{threshold}"]},
+    pair = pd.DataFrame([
+        {"Mercato": f"Over {label} gol", "Probabilità": pred[f"over_{threshold}"]},
+        {"Mercato": f"Under {label} gol", "Probabilità": pred[f"under_{threshold}"]},
     ])
-st.dataframe(pd.DataFrame(market_rows).style.format({"Probabilità": "{:.1%}"}), use_container_width=True, hide_index=True)
+    st.markdown(f"##### Over / Under {label} gol")
+    st.dataframe(style_market_pair(pair), use_container_width=True, hide_index=True)
 
 st.markdown("#### BTTS")
 st.dataframe(pd.DataFrame({
@@ -156,4 +171,5 @@ if st.button("Salva questa previsione nello storico"):
         st.error(f"Errore durante il salvataggio: {exc}")
 
 st.caption("Modello Poisson indipendente basato esclusivamente sui gol fatti/subiti e sulla sede. Le probabilità sono stime e non garantiscono risultati.")
+
 
