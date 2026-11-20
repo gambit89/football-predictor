@@ -90,6 +90,26 @@ class APIFootballProvider:
         matches.sort(key=lambda match: match["date"] or "")
         return matches[:count]
 
+    def get_fixtures_for_date(self, match_date, leagues, count=500):
+        """Load only selected leagues for one calendar day.
+
+        API-Football accepts one league per request. The app caches this result,
+        so the request count is proportional to the selected leagues and dates
+        actually opened by the user.
+        """
+        season = int(match_date[:4])
+        matches = []
+        for league_id in leagues:
+            data = self._get("fixtures", {
+                "date": match_date,
+                "league": int(league_id),
+                "season": season,
+                "timezone": "Europe/Rome",
+            })
+            matches.extend(self._normalize_match(item) for item in data["response"])
+        matches.sort(key=lambda match: match["date"] or "")
+        return matches[:count]
+
     def _get_team_matches(self, team_id, season, league_id=None, cutoff=None):
         params = {
             "team": team_id,
