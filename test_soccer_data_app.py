@@ -6,14 +6,13 @@ from football_predictor.soccer_data_provider import SoccerDataProvider
 
 
 st.set_page_config(
-    page_title="Soccer Data - Coverage",
+    page_title="Soccer Data - Historical Analysis",
     page_icon="⚽",
     layout="wide"
 )
 
-st.title("⚽ Soccer Data – Analisi copertura storica")
-st.caption("Verifica qualità, profondità e disponibilità dati per competizione")
-
+st.title("⚽ Soccer Data – Analisi storica")
+st.caption("Analisi qualità e profondità dati per competizione e stagione")
 
 if "SOCCER_DATA_KEY" not in st.secrets:
     st.error("SOCCER_DATA_KEY non configurata.")
@@ -24,7 +23,12 @@ provider = SoccerDataProvider(
 )
 
 
-def fetch_coverage(data_type=None):
+# --------------------------------------------------
+# RECUPERO COMPETIZIONI
+# --------------------------------------------------
+
+@st.cache_data(ttl=3600)
+def fetch_coverage_competitions():
 
     results = []
     page = 1
@@ -32,112 +36,239 @@ def fetch_coverage(data_type=None):
 
     while page <= total_pages:
 
-        params = {
-            "page": page,
-            "per_page": 200
-        }
-
-        if data_type:
-            params["data_type"] = data_type
-
         payload = provider._request(
             "coverage/leagues",
-            params=params
+            params={
+                "page": page,
+                "per_page": 200
+            }
         )
 
-        results.extend(
-            payload.get("data", [])
-        )
+        results.extend(payload.get("data", []))
 
-        meta = payload.get("meta", {})
-
-        total_pages = meta.get(
-            "total_pages",
-            1
-        )
+        total_pages = payload.get(
+            "meta", {}
+        ).get("total_pages", 1)
 
         page += 1
 
     return results
 
 
-st.success("Connessione API configurata.")
+# --------------------------------------------------
+# RECUPERO COPERTURA SINGOLA COMPETIZIONE
+# --------------------------------------------------
 
-if st.button("🔬 Analizza copertura storica"):
+def fetch_competition_detail(competition_id):
 
-    try:
+    payload = provider._request(
+        f"coverage/leagues/{competition_id}"
+    )
 
-        with st.spinner("Recupero copertura completa..."):
+    return payload.get("data", {})
 
-            coverage_all = fetch_coverage()
-            coverage_xg = fetch_coverage("xg")
 
-        st.success(
-            f"Competizioni analizzate: {len(coverage_all)}"
-        )
+# --------------------------------------------------
+# DASHBOARD
+# --------------------------------------------------
 
-        st.metric(
-            "Competizioni con copertura xG",
-            len(coverage_xg)
-        )
+try:
 
-        # -----------------------------------------------
-        # DATI GENERALI
-        # -----------------------------------------------
+    competitions = fetch_coverage_competitions()
 
-        st.subheader("📋 Copertura generale")
+    st.success(
+        f"Competizioni disponibili: {len(competitions)}"
+    )
 
-        df_all = pd.json_normalize(coverage_all)
+    # Solo competizioni con xG
+    xg_competitions = [
+        c for c in competitions
+        if c.get("data_types", {})
+        .get("xg", {})
+        .get("available", False)
+    ]
 
-        st.dataframe(
-            df_all,
-            use_container_width=True,
-            hide_index=True
-        )
+    st.metric(
+        "Competizioni con xG",
+        len(xg_competitions)
+    )
 
-        # -----------------------------------------------
-        # COMPETIZIONI CON XG
-        # -----------------------------------------------
+    st.divider()
 
-        st.subheader("🎯 Competizioni con xG")
+    st.subheader("🔎 Selezione competizioni")
 
-        df_xg = pd.json_normalize(coverage_xg)
+    competition_options = {
+        f"{c.get('name')} | {c.get('country') or 'Internazionale'}":
+        c.get("id")
+        for c in xg_competitions
+    }
 
-        st.dataframe(
-            df_xg,
-            use_container_width=True,
-            hide_index=True
-        )
+    selected_names = st.multiselect(
+        "Seleziona le competizioni da analizzare",
+        options=list(competition_options.keys()),
+        default=list(competition_options.keys())[:10]
+    )
 
-        # -----------------------------------------------
-        # EXPORT CSV
-        # -----------------------------------------------
+    st.caption(
+        "Per limitare le richieste API, iniziamo con "
+        "un gruppo selezionato di competizioni."
+    )
 
-        csv = df_all.to_csv(
-            index=False
-        ).encode("utf-8")
+    # --------------------------------------------------
+    # ANALISI STAGIONI
+    # --------------------------------------------------
 
-        st.download_button(
-            "⬇️ Scarica copertura completa CSV",
-            data=csv,
-            file_name="soccer_coverage.csv",
-            mime="text/csv"
-        )
+    if st.button("🔬 Analizza stagioni selezionate"):
 
-        # -----------------------------------------------
-        # DATI API RAW
-        # -----------------------------------------------
+        selected_ids = [
+            competition_options[name]
+            for name in selected_names
+        ]
 
-        with st.expander("🔎 Risposta API completa"):
+        results = []
 
-            st.json(coverage_all)
+        progress = st.progress(0)
 
-        with st.expander("🎯 Risposta API filtrata xG"):
+        for index, competition_id in enumerate(selected_ids):
 
-            st.json(coverage_xg)
+            try:
 
-    except Exception as e:
+                data = fetch_competition_detail(
+                    competition_id
+                )
 
-        st.error(
-            f"Errore recupero copertura: {e}"
-        )
+                competition_name = data.get("name")
+                country = data.get("country")
+
+                seasons = data.get("seasons", [])
+
+                for season in seasons:
+
+                    events = season.get(
+                        "events", {}
+                    )
+
+                    data_types = season.get(
+                        "data_types", {}
+                    )
+
+                    xg = data_types.get(
+                        "xg", {}
+                    )
+
+                    team_stats = data_types.get(
+                        "team_stats", {}
+                    )
+
+                    fixtures = data_types.get(
+                        "fixtures", {}
+                    )
+
+                    results.append({
+
+                        "Competizione": competition_name,
+                        "Paese": country,
+                        "Stagione": season.get("year"),
+                        "Stato": season.get("status"),
+
+                        "Partite giocate":
+                            events.get("finished", 0),
+
+                        "Partite totali":
+                            events.get("total", 0),
+
+                        "xG disponibile":
+                            xg.get("available", False),
+
+                        "Match con xG":
+                            xg.get("covered_events", 0),
+
+                        "Copertura xG %":
+                            xg.get("coverage_pct", 0),
+
+                        "Team stats":
+                            team_stats.get("available", False),
+
+                        "Match con statistiche":
+                            team_stats.get("covered_events", 0),
+
+                        "Copertura statistiche %":
+                            team_stats.get("coverage_pct", 0),
+
+                        "Fixtures":
+                            fixtures.get("available", False)
+
+                    })
+
+            except Exception as e:
+
+                st.warning(
+                    f"Errore su {competition_id}: {e}"
+                )
+
+            progress.progress(
+                (index + 1) / max(len(selected_ids), 1)
+            )
+
+        # --------------------------------------------------
+        # RISULTATI
+        # --------------------------------------------------
+
+        if results:
+
+            df = pd.DataFrame(results)
+
+            st.success(
+                f"Stagioni analizzate: {len(df)}"
+            )
+
+            st.subheader("📊 Copertura stagione per stagione")
+
+            st.dataframe(
+                df,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # --------------------------------------------------
+            # FILTRI
+            # --------------------------------------------------
+
+            st.subheader("🎯 Stagioni con copertura xG")
+
+            df_xg = df[
+                df["xG disponibile"] == True
+            ]
+
+            st.dataframe(
+                df_xg,
+                use_container_width=True,
+                hide_index=True
+            )
+
+            # --------------------------------------------------
+            # EXPORT
+            # --------------------------------------------------
+
+            csv = df.to_csv(
+                index=False
+            ).encode("utf-8")
+
+            st.download_button(
+                "⬇️ Scarica analisi stagioni CSV",
+                data=csv,
+                file_name="historical_coverage.csv",
+                mime="text/csv"
+            )
+
+        else:
+
+            st.warning(
+                "Nessun dato restituito per le competizioni selezionate."
+            )
+
+except Exception as e:
+
+    st.error(
+        f"Errore durante il caricamento: {e}"
+    )
