@@ -117,26 +117,37 @@ class APIFootballProvider:
 
     def get_next_fixtures(self, count=500, days=30):
         today = datetime.now(timezone.utc).date()
-        # football-data.org treats dateTo as an exclusive boundary.
         end_date = today + timedelta(days=days + 1)
+        cursor = today
+        fixtures_by_id = {}
 
-        data = self._get(
-            "matches",
-            {
-                "dateFrom": today.isoformat(),
-                "dateTo": end_date.isoformat()
-            }
-        )
+        # football-data.org accepts at most ten days in each date range.
+        while cursor < end_date:
+            batch_end = min(cursor + timedelta(days=10), end_date)
+            data = self._get(
+                "matches",
+                {
+                    "dateFrom": cursor.isoformat(),
+                    "dateTo": batch_end.isoformat()
+                }
+            )
 
-        fixtures = [
-            self._normalize_match(item)
-            for item in data.get("matches", [])
-        ]
+            for item in data.get("matches", []):
+                fixture = self._normalize_match(item)
+                fixture_key = fixture.get("fixture_id") or (
+                    fixture.get("date"),
+                    fixture.get("league_id"),
+                    fixture.get("home_id"),
+                    fixture.get("away_id"),
+                )
+                fixtures_by_id[fixture_key] = fixture
 
-        fixtures.sort(
+            cursor = batch_end
+
+        fixtures = sorted(
+            fixtures_by_id.values(),
             key=lambda item: item["date"] or ""
         )
-
         return fixtures[:count]
 
     def _get_team_matches(
@@ -270,4 +281,5 @@ class APIFootballProvider:
         ]
 
         return completed[-count:]
+
 
