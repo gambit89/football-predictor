@@ -110,6 +110,13 @@ class APIFootballProvider:
         matches.sort(key=lambda match: match["date"] or "")
         return matches[:count]
 
+    def get_leagues_for_season(self, season):
+        """Return league metadata for a season, including country and names."""
+        data = self._get("leagues", {"season": int(season)})
+        if not isinstance(data["response"], list):
+            raise RuntimeError("Elenco campionati API-Football non valido.")
+        return data["response"]
+
     def _get_team_matches(self, team_id, season, league_id=None, cutoff=None):
         params = {
             "team": team_id,
