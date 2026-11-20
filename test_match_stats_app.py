@@ -2,6 +2,8 @@
 import streamlit as st
 import pandas as pd
 
+from datetime import date, timedelta
+
 from football_predictor.soccer_data_provider import SoccerDataProvider
 
 
@@ -24,39 +26,27 @@ provider = SoccerDataProvider(
 
 
 # --------------------------------------------------
-# RECUPERO PARTITE CONCLUSE
+# RECUPERO PARTITE CONCLUSE RECENTI
 # --------------------------------------------------
 
 @st.cache_data(ttl=1800)
 def fetch_finished_matches():
 
-    results = []
-    page = 1
-    total_pages = 1
+    date_to = date.today()
+    date_from = date_to - timedelta(days=30)
 
-    while page <= total_pages:
+    payload = provider._request(
+        "matches",
+        params={
+            "status": "finished",
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+            "per_page": 100,
+            "page": 1
+        }
+    )
 
-        payload = provider._request(
-            "matches",
-            params={
-                "status": "finished",
-                "per_page": 100,
-                "page": page
-            }
-        )
-
-        results.extend(payload.get("data", []))
-
-        meta = payload.get("meta", {})
-
-        total_pages = meta.get(
-            "total_pages",
-            1
-        )
-
-        page += 1
-
-    return results
+    return payload.get("data", [])
 
 
 # --------------------------------------------------
