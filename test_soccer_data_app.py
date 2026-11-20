@@ -6,13 +6,13 @@ from football_predictor.soccer_data_provider import SoccerDataProvider
 
 
 st.set_page_config(
-    page_title="Soccer Data Coverage",
+    page_title="Soccer Data - Coverage",
     page_icon="⚽",
     layout="wide"
 )
 
-st.title("⚽ Soccer Data – Coverage Dashboard")
-st.caption("Analisi completa delle competizioni e disponibilità dati")
+st.title("⚽ Soccer Data – Analisi copertura storica")
+st.caption("Verifica qualità, profondità e disponibilità dati per competizione")
 
 
 if "SOCCER_DATA_KEY" not in st.secrets:
@@ -23,27 +23,29 @@ provider = SoccerDataProvider(
     st.secrets["SOCCER_DATA_KEY"]
 )
 
-st.success("Connessione API configurata correttamente.")
 
+def fetch_coverage(data_type=None):
 
-def fetch_all_competitions():
-
-    competitions = []
+    results = []
     page = 1
     total_pages = 1
 
     while page <= total_pages:
 
+        params = {
+            "page": page,
+            "per_page": 200
+        }
+
+        if data_type:
+            params["data_type"] = data_type
+
         payload = provider._request(
-            "competitions",
-            params={
-                "page": page,
-                "per_page": 100,
-                "sort": "name"
-            }
+            "coverage/leagues",
+            params=params
         )
 
-        competitions.extend(
+        results.extend(
             payload.get("data", [])
         )
 
@@ -56,262 +58,86 @@ def fetch_all_competitions():
 
         page += 1
 
-    return competitions
+    return results
 
 
-if st.button("🔍 Analizza copertura completa"):
+st.success("Connessione API configurata.")
+
+if st.button("🔬 Analizza copertura storica"):
 
     try:
 
-        with st.spinner(
-            "Recupero competizioni e analisi dati..."
-        ):
+        with st.spinner("Recupero copertura completa..."):
 
-            competitions = fetch_all_competitions()
-
-        if not competitions:
-
-            st.warning("Nessuna competizione trovata.")
-            st.stop()
-
-        df = pd.DataFrame(competitions)
-
-        # Normalizzazione campi booleani
-        boolean_columns = [
-            "has_team_stats",
-            "has_player_stats",
-            "odds_available",
-            "live_odds_available",
-            "xg_available"
-        ]
-
-        for column in boolean_columns:
-
-            if column not in df.columns:
-                df[column] = False
-
-            df[column] = df[column].fillna(False)
+            coverage_all = fetch_coverage()
+            coverage_xg = fetch_coverage("xg")
 
         st.success(
-            f"Competizioni recuperate: {len(df)}"
+            f"Competizioni analizzate: {len(coverage_all)}"
         )
 
-        # ------------------------------------------------
-        # KPI
-        # ------------------------------------------------
-
-        st.subheader("📊 Riepilogo copertura")
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        col1.metric(
-            "Competizioni",
-            len(df)
+        st.metric(
+            "Competizioni con copertura xG",
+            len(coverage_xg)
         )
 
-        col2.metric(
-            "Con xG",
-            int(df["xg_available"].sum())
-        )
+        # -----------------------------------------------
+        # DATI GENERALI
+        # -----------------------------------------------
 
-        col3.metric(
-            "Team Stats",
-            int(df["has_team_stats"].sum())
-        )
+        st.subheader("📋 Copertura generale")
 
-        col4.metric(
-            "Player Stats",
-            int(df["has_player_stats"].sum())
-        )
-
-        col5, col6, col7 = st.columns(3)
-
-        col5.metric(
-            "Con quote",
-            int(df["odds_available"].sum())
-        )
-
-        col6.metric(
-            "Quote live",
-            int(df["live_odds_available"].sum())
-        )
-
-        col7.metric(
-            "Paesi",
-            df["country"].nunique()
-        )
-
-        # ------------------------------------------------
-        # COPERTURA PER PAESE
-        # ------------------------------------------------
-
-        st.subheader("🌍 Competizioni per paese")
-
-        country_stats = (
-            df.groupby("country", dropna=False)
-            .agg(
-                Competizioni=("id", "count"),
-                xG=("xg_available", "sum"),
-                TeamStats=("has_team_stats", "sum"),
-                PlayerStats=("has_player_stats", "sum"),
-                Quote=("odds_available", "sum")
-            )
-            .reset_index()
-            .sort_values(
-                "Competizioni",
-                ascending=False
-            )
-        )
+        df_all = pd.json_normalize(coverage_all)
 
         st.dataframe(
-            country_stats,
+            df_all,
             use_container_width=True,
             hide_index=True
         )
 
-        # ------------------------------------------------
-        # FILTRI
-        # ------------------------------------------------
+        # -----------------------------------------------
+        # COMPETIZIONI CON XG
+        # -----------------------------------------------
 
-        st.subheader("🔎 Filtra competizioni")
+        st.subheader("🎯 Competizioni con xG")
 
-        countries = sorted(
-            [
-                str(c)
-                for c in df["country"].dropna().unique()
-            ]
-        )
-
-        selected_country = st.selectbox(
-            "Paese",
-            ["Tutti"] + countries
-        )
-
-        filtered_df = df.copy()
-
-        if selected_country != "Tutti":
-
-            filtered_df = filtered_df[
-                filtered_df["country"] == selected_country
-            ]
-
-        xg_filter = st.checkbox(
-            "Solo competizioni con xG"
-        )
-
-        if xg_filter:
-
-            filtered_df = filtered_df[
-                filtered_df["xg_available"] == True
-            ]
-
-        stats_filter = st.checkbox(
-            "Solo competizioni con statistiche squadre"
-        )
-
-        if stats_filter:
-
-            filtered_df = filtered_df[
-                filtered_df["has_team_stats"] == True
-            ]
-
-        odds_filter = st.checkbox(
-            "Solo competizioni con quote"
-        )
-
-        if odds_filter:
-
-            filtered_df = filtered_df[
-                filtered_df["odds_available"] == True
-            ]
-
-        # ------------------------------------------------
-        # TABELLA COMPETIZIONI
-        # ------------------------------------------------
-
-        st.subheader(
-            f"🏆 Competizioni ({len(filtered_df)})"
-        )
-
-        preferred_columns = [
-            "id",
-            "name",
-            "country",
-            "country_code",
-            "confederation",
-            "type",
-            "has_team_stats",
-            "has_player_stats",
-            "odds_available",
-            "live_odds_available",
-            "xg_available"
-        ]
-
-        available_columns = [
-            c for c in preferred_columns
-            if c in filtered_df.columns
-        ]
+        df_xg = pd.json_normalize(coverage_xg)
 
         st.dataframe(
-            filtered_df[available_columns],
+            df_xg,
             use_container_width=True,
             hide_index=True
         )
 
-        # ------------------------------------------------
-        # EXPORT
-        # ------------------------------------------------
+        # -----------------------------------------------
+        # EXPORT CSV
+        # -----------------------------------------------
 
-        csv = filtered_df.to_csv(
+        csv = df_all.to_csv(
             index=False
         ).encode("utf-8")
 
         st.download_button(
-            "⬇️ Scarica competizioni CSV",
+            "⬇️ Scarica copertura completa CSV",
             data=csv,
-            file_name="soccer_data_competitions.csv",
+            file_name="soccer_coverage.csv",
             mime="text/csv"
         )
 
-        # ------------------------------------------------
-        # ANALISI QUALITÀ DATI
-        # ------------------------------------------------
+        # -----------------------------------------------
+        # DATI API RAW
+        # -----------------------------------------------
 
-        st.subheader("📈 Disponibilità dati")
+        with st.expander("🔎 Risposta API completa"):
 
-        coverage = pd.DataFrame({
-            "Tipo dato": [
-                "Team Stats",
-                "Player Stats",
-                "xG",
-                "Quote",
-                "Quote Live"
-            ],
-            "Competizioni": [
-                int(df["has_team_stats"].sum()),
-                int(df["has_player_stats"].sum()),
-                int(df["xg_available"].sum()),
-                int(df["odds_available"].sum()),
-                int(df["live_odds_available"].sum())
-            ]
-        })
+            st.json(coverage_all)
 
-        st.bar_chart(
-            coverage.set_index("Tipo dato")
-        )
+        with st.expander("🎯 Risposta API filtrata xG"):
 
-        # ------------------------------------------------
-        # RAW
-        # ------------------------------------------------
-
-        with st.expander(
-            "Visualizza risposta API originale"
-        ):
-
-            st.json(competitions)
+            st.json(coverage_xg)
 
     except Exception as e:
 
         st.error(
-            f"Errore durante l'analisi: {e}"
+            f"Errore recupero copertura: {e}"
         )
