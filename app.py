@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+import unicodedata
 
 from football_predictor.provider import APIFootballProvider
 from football_predictor.model import predict_from_profiles, build_team_profile
@@ -10,6 +11,53 @@ from football_predictor.config import API_KEY, API_BASE_URL
 
 ROME = ZoneInfo("Europe/Rome")
 ACTIVE_STATUSES = {"NS", "TBD", "LIVE", "1H", "HT", "2H", "ET", "BT", "P", "SUSP", "INT"}
+PRIMARY_COMPETITIONS = {
+    "italy": {"serie a", "serie b"},
+    "england": {"premier league", "championship"},
+    "spain": {"la liga", "segunda division"},
+    "france": {"ligue 1", "ligue 2"},
+    "germany": {"bundesliga", "2 bundesliga"},
+    "netherlands": {"eredivisie", "eerste divisie"},
+    "belgium": {"jupiler pro league", "challenger pro league"},
+    "portugal": {"primeira liga", "liga portugal", "liga portugal 2", "segunda liga"},
+    "ireland": {"premier division", "first division"},
+    "scotland": {"premiership", "championship"},
+    "poland": {"ekstraklasa", "i liga"},
+    "romania": {"liga i", "liga ii", "liga 1", "liga 2", "superliga"},
+    "bulgaria": {"first league", "second league", "first professional league", "second professional league", "parva liga", "vtora liga"},
+    "argentina": {"liga profesional argentina", "liga profesional", "primera nacional"},
+    "brazil": {"serie a", "serie b"},
+    "usa": {"major league soccer", "usl championship"},
+    "turkey": {"super lig", "1 lig"},
+    "greece": {"super league 1", "super league 2", "super league"},
+    "austria": {"bundesliga", "2 liga"},
+    "switzerland": {"super league", "challenge league"},
+    "denmark": {"superliga", "1 division"},
+    "norway": {"eliteserien", "1 division"},
+    "sweden": {"allsvenskan", "superettan"},
+    "czech republic": {"czech liga", "fnl"},
+    "japan": {"j1 league", "j2 league"},
+    "mexico": {"liga mx", "liga de expansion mx"},
+    "colombia": {"primera a", "primera b"},
+    "chile": {"primera division", "primera b"},
+    "uruguay": {"primera division", "segunda division"},
+    "ecuador": {"liga pro", "liga pro serie b"},
+    "paraguay": {"primera division", "division intermedia"},
+    "peru": {"primera division", "liga 2"},
+    "south korea": {"k league 1", "k league 2"},
+    "saudi arabia": {"pro league", "division 1"},
+    "south africa": {"premier soccer league", "national first division"},
+    "morocco": {"botola pro", "botola 2"},
+}
+COUNTRY_ALIASES = {
+    "republic of ireland": "ireland",
+    "united states": "usa",
+    "united states of america": "usa",
+    "czechia": "czech republic",
+    "korea republic": "south korea",
+    "korea republic (south korea)": "south korea",
+    "usa": "usa",
+}
 
 st.set_page_config(page_title="Football Predictor", page_icon="⚽", layout="wide")
 st.title("⚽ Football Predictor")
@@ -19,6 +67,24 @@ st.caption("Previsioni pre-partita · gol fatti/subiti · sede · stagione 70% +
 def parse_date(value):
     dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def normalize_label(value):
+    decomposed = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return " ".join("".join(ch for ch in decomposed if not unicodedata.combining(ch)).split())
+
+
+def is_primary_competition(fixture):
+    country = normalize_label(fixture.get("country"))
+    country = COUNTRY_ALIASES.get(country, country)
+    league = normalize_label(fixture.get("league"))
+    if any(tag in league for tag in ("women", "woman", "femminile", "feminine", "u19", "u21", "youth", "reserve", "primavera")):
+        return False
+    competition_names = PRIMARY_COMPETITIONS.get(country, set())
+    return any(
+        league == name or league.startswith(name + " ")
+        for name in competition_names
+    )
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -77,24 +143,46 @@ if not rows:
     st.stop()
 
 st.subheader(f"Partite di oggi · {datetime.now(ROME).strftime('%d/%m/%Y')}")
-league_values = sorted({row["Competizione"] for row in rows})
-selected_league = st.selectbox("🏆 Campionato", ["Tutti i campionati"] + league_values)
-filtered = [
-    row for row in rows
-    if selected_league == "Tutti i campionati" or row["Competizione"] == selected_league
-]
-st.caption(f"Partite trovate: {len(filtered)}")
+primary_rows = [row for row in rows if is_primary_competition(row["_fixture"])]
+secondary_rows = [row for row in rows if not is_primary_competition(row["_fixture"])]
+st.caption(f"Totale gare: {len(rows)} · principali: {len(primary_rows)} · secondarie: {len(secondary_rows)}")
 
-selection = st.dataframe(
-    pd.DataFrame([{key: row[key] for key in ("Data", "Competizione", "Casa", "Trasferta")} for row in filtered]),
-    use_container_width=True, hide_index=True, on_select="rerun", selection_mode="single-row",
-    key=f"fixture_table_today_{selected_league}",
-)
-if not selection.selection.rows:
+
+def render_fixture_module(module_key, title, module_rows):
+    st.markdown(f"### {title}")
+    if not module_rows:
+        st.info("Nessuna partita disponibile oggi in questo gruppo.")
+        return
+    selection_key = f"fixture_table_{datetime.now(ROME).date()}_{module_key}"
+    selection = st.dataframe(
+        pd.DataFrame([
+            {key: row[key] for key in ("Data", "Competizione", "Casa", "Trasferta")}
+            for row in module_rows
+        ]),
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key=selection_key,
+    )
+    selected_rows = list(selection.selection.rows)
+    previous_key = f"previous_selection_{module_key}"
+    previous_rows = st.session_state.get(previous_key, [])
+    if selected_rows != previous_rows:
+        st.session_state[previous_key] = selected_rows
+        st.session_state["selected_fixture"] = (
+            module_rows[selected_rows[0]]["_fixture"] if selected_rows else None
+        )
+
+
+render_fixture_module("primary", "🏆 Campionati principali", primary_rows)
+render_fixture_module("secondary", "🌍 Campionati secondari", secondary_rows)
+
+match = st.session_state.get("selected_fixture")
+if not match:
     st.info("Seleziona una partita dalla tabella per elaborare il pronostico.")
     st.stop()
 
-match = filtered[selection.selection.rows[0]]["_fixture"]
 if not all(match.get(key) for key in ("home_id", "away_id", "league_id", "season", "date")):
     st.warning("Dati insufficienti: mancano identificativi delle squadre, competizione, stagione o data.")
     st.stop()
