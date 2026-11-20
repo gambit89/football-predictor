@@ -73,22 +73,14 @@ class APIFootballProvider:
 
     def get_next_fixtures(self, count=500, days=30):
         today = datetime.now(timezone.utc).date()
-        params = {
-            "from": today.isoformat(),
-            "to": (today + timedelta(days=days)).isoformat(),
-            "timezone": "Europe/Rome",
-            "page": 1,
-        }
         matches = []
-        while True:
+        # The fixtures endpoint does not accept `page`; query one date at a time.
+        for offset in range(days + 1):
+            params = {"date": (today + timedelta(days=offset)).isoformat()}
             data = self._get("fixtures", params)
             matches.extend(self._normalize_match(item) for item in data["response"])
-            paging = data.get("paging") or {}
-            current = int(paging.get("current") or params["page"])
-            total = int(paging.get("total") or current)
-            if current >= total or len(matches) >= count:
+            if len(matches) >= count:
                 break
-            params["page"] = current + 1
         matches.sort(key=lambda match: match["date"] or "")
         return matches[:count]
 
@@ -98,15 +90,17 @@ class APIFootballProvider:
             "season": season,
             "last": 20,
             "status": "FT-AET-PEN",
-            "timezone": "Europe/Rome",
         }
         if league_id is not None:
             params["league"] = league_id
-        if cutoff:
-            params["to"] = cutoff
         data = self._get("fixtures", params)
         matches = [self._normalize_match(item) for item in data["response"]]
         matches.sort(key=lambda match: match["date"] or "")
+        if cutoff:
+            matches = [
+                match for match in matches
+                if match["date"] and match["date"][:10] <= cutoff
+            ]
         return matches
 
     def get_team_season_stats(self, team_id, league_id, season, cutoff=None):
