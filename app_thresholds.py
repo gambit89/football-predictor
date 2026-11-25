@@ -282,11 +282,44 @@ def qualified_signals(prediction):
 signals = qualified_signals(pred)
 st.subheader(f"{match['home']} – {match['away']}")
 if signals:
-    signal_summary = " · ".join(
-        f"{market}: {outcome} {probability:.1%}" 
-        for market, outcome, probability, _ in signals
+    signal_rows = []
+    for market in dict.fromkeys(item[0] for item in signals):
+        market_signals = [item for item in signals if item[0] == market]
+        outcomes = "  ·  ".join(
+            f"{outcome} ({probability:.1%})"
+            for _, outcome, probability, _ in market_signals
+        )
+        signal_rows.append({
+            "Mercato": market,
+            "Esiti sopra soglia": outcomes,
+            "Soglia minima": market_signals[0][3],
+        })
+
+    signal_table = pd.DataFrame(signal_rows)
+    signal_style = (
+        signal_table.style
+        .format({"Soglia minima": "{:.0%}"})
+        .set_properties(**{
+            "font-weight": "bold",
+            "padding": "0.7rem 0.9rem",
+            "vertical-align": "middle",
+        })
+        .set_table_styles([{
+            "selector": "th",
+            "props": [
+                ("font-weight", "bold"),
+                ("padding", "0.7rem 0.9rem"),
+                ("text-align", "left"),
+            ],
+        }])
     )
-    st.success(f"Esiti sopra soglia: {signal_summary}")
+    st.markdown("**Esiti sopra soglia**")
+    st.dataframe(
+        signal_style,
+        use_container_width=True,
+        hide_index=True,
+        height=min(120 + 52 * len(signal_rows), 432),
+    )
 else:
     st.info("Nessun esito raggiunge le soglie minime impostate per questa partita.")
 
